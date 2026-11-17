@@ -1,0 +1,111 @@
+name: cybertrack
+
+services:
+  mongodb:
+    image: mongo:7
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:?Set MongoDB root username in root .env}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:?Set MongoDB root password in root .env}
+      MONGO_INITDB_DATABASE: cybertrack_db
+      MONGO_APP_USERNAME: ${MONGO_APP_USERNAME:?Set MongoDB application username in root .env}
+      MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD:?Set MongoDB application password in root .env}
+    volumes:
+      - cybertrack_mongo_data:/data/db
+    networks:
+      - cybertrack
+    healthcheck:
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --eval
+        - "db.adminCommand('ping').ok"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  mongodb-init:
+    image: mongo:7
+    restart: "no"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:?Set MongoDB root username in root .env}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:?Set MongoDB root password in root .env}
+      MONGO_APP_USERNAME: ${MONGO_APP_USERNAME:?Set MongoDB application username in root .env}
+      MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD:?Set MongoDB application password in root .env}
+    volumes:
+      - ./docker/mongo-app-user.js:/scripts/mongo-app-user.js:ro
+    command:
+      - sh
+      - -ec
+      - |
+        mongosh --quiet \
+          --host mongodb:27017 \
+          --username "$$MONGO_INITDB_ROOT_USERNAME" \
+          --password "$$MONGO_INITDB_ROOT_PASSWORD" \
+          --authenticationDatabase admin \
+          --file /scripts/mongo-app-user.js
+    networks:
+      - cybertrack
+
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 20s
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 5000
+      TRUST_PROXY_HOPS: "1"
+      MONGODB_URI: "mongodb://${MONGO_APP_USERNAME:?Set MongoDB application username in root .env}:${MONGO_APP_PASSWORD:?Set MongoDB application password in root .env}@mongodb:27017/cybertrack_db?authSource=cybertrack_db"
+      MONGODB_DATABASE: cybertrack_db
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in root .env}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173,http://127.0.0.1:5173}
+    expose:
+      - "5000"
+    depends_on:
+      mongodb-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:5000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - cybertrack
+
+  frontend:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5173:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - cybertrack
+
+volumes:
+  cybertrack_mongo_data:
+
+networks:
+  cybertrack:
+    driver: bridge

@@ -1,0 +1,14 @@
+const express = require("express");
+const controller = require("../controllers/assetController");
+
+const router = express.Router();
+const { authorizeRoles } = require("../middleware/authenticate");
+
+router.get("/", controller.list);
+router.get("/:id/related", controller.related);
+router.get("/:id", controller.getById);
+router.post("/", authorizeRoles("ADMIN", "SECURITY_ANALYST"), controller.create);
+router.put("/:id", authorizeRoles("ADMIN", "SECURITY_ANALYST"), controller.update);
+router.delete("/:id", authorizeRoles("ADMIN", "SECURITY_ANALYST"), controller.remove);
+
+module.exports = router;

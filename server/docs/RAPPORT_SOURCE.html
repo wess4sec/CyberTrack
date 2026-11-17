@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>CyberTrack — Rapport académique</title>
+  <style>
+    @page { size: A4; margin: 15mm 17mm 16mm; }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: #233044; font: 10.2pt/1.42 "Segoe UI", Arial, sans-serif; }
+    .page { position: relative; min-height: 250mm; page-break-after: always; padding-bottom: 12mm; }
+    .page:last-child { page-break-after: auto; }
+    .topline { display: flex; justify-content: space-between; padding-bottom: 7mm; color: #54706f; border-bottom: 1px solid #d5e0e1; font-size: 8pt; letter-spacing: .5px; text-transform: uppercase; }
+    .page-footer { position: absolute; right: 0; bottom: 0; left: 0; display: flex; justify-content: space-between; padding-top: 3mm; color: #718094; border-top: 1px solid #d5e0e1; font-size: 8pt; }
+    h1, h2, h3 { color: #102b3c; }
+    h1 { margin: 0; font-size: 29pt; line-height: 1.12; letter-spacing: -.8px; }
+    h2 { margin: 8mm 0 3mm; font-size: 16pt; line-height: 1.2; }
+    h3 { margin: 5mm 0 2mm; font-size: 11pt; }
+    p { margin: 0 0 3mm; text-align: justify; }
+    ul { margin: 1mm 0 4mm; padding-left: 6mm; }
+    li { margin: 0 0 1.5mm; }
+    .cover { display: flex; min-height: 220mm; flex-direction: column; justify-content: center; }
+    .cover .label { margin: 0 0 8mm; color: #258d81; font-size: 9pt; font-weight: 700; letter-spacing: 1.4px; }
+    .cover .subtitle { max-width: 145mm; margin: 7mm 0 0; color: #586b7c; font-size: 16pt; line-height: 1.4; text-align: left; }
+    .cover-rule { width: 35mm; height: 2mm; margin: 12mm 0; background: #54cbb8; }
+    .cover-note { margin-top: 28mm; color: #718094; font-size: 10pt; }
+    .callout { padding: 4mm 5mm; margin: 4mm 0; background: #edf7f5; border-left: 3px solid #42b7a5; }
+    .callout strong { color: #176f67; }
+    table { width: 100%; margin: 3mm 0 4mm; border-collapse: collapse; font-size: 9pt; }
+    th { color: #eaf3f5; background: #173a4a; text-align: left; }
+    th, td { padding: 2.4mm 3mm; border: 1px solid #d6e0e5; vertical-align: top; }
+    tr:nth-child(even) td { background: #f5f8fa; }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 5mm; }
+    .metric { padding: 3mm; background: #f0f5f7; border-radius: 2mm; }
+    .metric strong { display: block; color: #187b72; font-size: 17pt; }
+    .small { color: #607387; font-size: 8.5pt; }
+    .section-number { margin-right: 2mm; color: #35a998; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <section class="page">
+    <div class="topline"><span>CyberTrack</span><span>Rapport de projet</span></div>
+    <div class="cover">
+      <p class="label">PLATEFORME DE GESTION DES VULNÉRABILITÉS</p>
+      <h1>CyberTrack</h1>
+      <p class="subtitle">Conception et réalisation d’une application de suivi des vulnérabilités, des actifs informatiques et des actions de remédiation.</p>
+      <div class="cover-rule"></div>
+      <p>Rapport académique — architecture web, sécurité applicative et persistance MongoDB</p>
+      <p class="cover-note">Version de projet vérifiée en novembre 2026<br>Technologies : Node.js, Express, React, Vite et MongoDB</p>
+    </div>
+    <div class="page-footer"><span>Rapport académique · CyberTrack</span><span>1 / 5</span></div>
+  </section>
+
+  <section class="page">
+    <div class="topline"><span>CyberTrack</span><span>Contexte et besoins</span></div>
+    <h2><span class="section-number">01</span>Introduction et problématique</h2>
+    <p>Les équipes de sécurité doivent rapprocher plusieurs informations pour traiter un risque : une vulnérabilité connue, les produits affectés, les actifs présents dans l’organisation, les observations issues d’un scan et la personne chargée de la correction. Sans suivi centralisé, les priorités, les échéances et la preuve de traitement peuvent se disperser entre plusieurs outils.</p>
+    <p>CyberTrack vise à fournir une base applicative commune pour inventorier les vulnérabilités, consulter les actifs, enregistrer des résultats de scans et suivre les tâches de remédiation. La question directrice est la suivante : comment structurer ces informations et offrir un suivi cohérent, tout en protégeant les comptes et les données de l’organisation ?</p>
+    <div class="callout"><strong>Périmètre vérifié.</strong> L’application gère des constats et des résultats enregistrés/importés. Elle n’exécute pas de scan réseau et ne synchronise pas encore le NVD. Les enregistrements marqués <code>CYBERTRACK_SIMULATED</code> sont des données de démonstration, pas des CVE officielles.</div>
+    <h3>Objectifs fonctionnels</h3>
+    <ul>
+      <li>Consulter et filtrer les vulnérabilités selon le CVE, la sévérité, le statut, le score CVSS et les dates.</li>
+      <li>Gérer un inventaire d’actifs et conserver les relations avec les scans et tâches.</li>
+      <li>Attribuer des remédiations, historiser les changements et repérer les tâches échues.</li>
+      <li>Présenter des indicateurs calculés par le backend, sans charger toute la collection dans l’interface.</li>
+    </ul>
+    <h3>Utilisateurs et contraintes</h3>
+    <p>La plateforme distingue les administrateurs, analystes de sécurité et lecteurs. Elle conserve les cinq collections MongoDB historiques et les données déjà présentes. Les tests ne réinitialisent pas la base métier : ils créent une base temporaire isolée et vérifient l’état initial et final de la base configurée.</p>
+    <h2><span class="section-number">02</span>Analyse des besoins</h2>
+    <p>Les besoins transversaux portent sur la pagination serveur, la validation des entrées, la protection des routes, des erreurs JSON cohérentes et une interface responsive. Les scans sont présentés sans laisser croire qu’un moteur réseau existe. Les données de démonstration doivent rester identifiables afin de ne pas confondre simulation et renseignement officiel.</p>
+    <div class="page-footer"><span>Rapport académique · CyberTrack</span><span>2 / 5</span></div>
+  </section>
+
+  <section class="page">
+    <div class="topline"><span>CyberTrack</span><span>Conception des données</span></div>
+    <h2><span class="section-number">03</span>Modélisation MongoDB</h2>
+    <p>Le modèle conserve cinq collections explicites. Le choix n’est pas de transformer chaque sous-élément en collection, mais de séparer les entités réutilisées des données dépendantes de leur parent.</p>
+    <table>
+      <thead><tr><th>Collection</th><th>Responsabilité</th><th>Relations</th></tr></thead>
+      <tbody>
+        <tr><td>vulnerabilities</td><td>CVE, titre, description, sévérité, CVSS, dates et références.</td><td>Référencée par les résultats de scans et tâches.</td></tr>
+        <tr><td>assets</td><td>Hôte, adresse IP, système, environnement et criticité.</td><td>Référencée par les scans et tâches.</td></tr>
+        <tr><td>users</td><td>Identité, hash de mot de passe, rôle et département.</td><td>Opérateur de scan, assigné et créateur de tâche.</td></tr>
+        <tr><td>scans</td><td>Type, état, dates et constats enregistrés.</td><td>Résultats embarqués; asset, opérateur et vulnérabilité référencés.</td></tr>
+        <tr><td>remediation_tasks</td><td>Priorité, statut, échéance et historique.</td><td>Historique embarqué; vulnérabilité, asset et utilisateurs référencés.</td></tr>
+      </tbody>
+    </table>
+    <h3>Embarqué ou référencé</h3>
+    <p>Les tableaux `scans.results` et `remediation_tasks.history` appartiennent à leur document parent, sont lus dans ce contexte et n’ont pas d’identité indépendante. Les vulnérabilités, assets et utilisateurs peuvent être partagés entre plusieurs opérations; ils sont donc liés par ObjectId. Les contrôleurs vérifient l’existence des références et refusent la suppression d’une entité encore utilisée.</p>
+    <h3>Validation et indexation</h3>
+    <p>Les schémas Mongoose vérifient types et contraintes. La collection des vulnérabilités applique aussi un validateur MongoDB strict et une unicité sur `cveId`. Les index disponibles incluent sévérité, sévérité/CVSS, date de publication, texte titre/description et clés de références des scans et tâches. Un index multikey sur `scans.results.vulnerabilityId` couvre la recherche transversale des CVE observées. La création automatique des index au démarrage est désactivée; les scripts de modification sont explicites.</p>
+    <h3>Agrégations</h3>
+    <p>Les indicateurs sont regroupés côté MongoDB : comptes par sévérité, tendances mensuelles, statut des scans et classements basés sur les constats. Les jointures utilisent `$lookup`; `$unwind` transforme les résultats embarqués en éléments de travail. Cette approche limite le volume transféré vers Node.js et le navigateur.</p>
+    <div class="callout"><strong>Échelle existante.</strong> La vérification locale a observé 10 001 documents de vulnérabilité. Cette donnée décrit l’instance testée, elle ne garantit pas une capacité maximale ni une latence future.</div>
+    <div class="page-footer"><span>Rapport académique · CyberTrack</span><span>3 / 5</span></div>
+  </section>
+
+  <section class="page">
+    <div class="topline"><span>CyberTrack</span><span>Réalisation et sécurité</span></div>
+    <h2><span class="section-number">04</span>Architecture et réalisation</h2>
+    <div class="two-col">
+      <div><h3>API backend</h3><p>Express expose les routes sous `/api`. Les routes appliquent authentification et contrôle de rôle; les contrôleurs gèrent les requêtes métier et délèguent la validation commune à des utilitaires. Mongoose cible les collections existantes. `app.js` configure l’application et `server.js` ouvre le port après la connexion à MongoDB.</p></div>
+      <div><h3>Interface web</h3><p>React 19 et Vite fournissent une interface responsive en français. Le tableau de bord consomme les agrégations; les pages d’inventaire offrent recherche, filtres, pagination, détails et formulaires CRUD. Les cookies de session sont inclus dans les appels API.</p></div>
+    </div>
+    <h3>Contrôles de sécurité</h3>
+    <ul>
+      <li>Les mots de passe sont hachés avec bcrypt; `passwordHash` est exclu des réponses.</li>
+      <li>Le JWT de courte durée est placé dans un cookie HttpOnly, SameSite Strict et Secure en production.</li>
+      <li>Les rôles protègent lecture, modification et administration des utilisateurs.</li>
+      <li>Les champs acceptés sont autorisés explicitement; opérateurs NoSQL, clés interdites et identifiants invalides sont rejetés.</li>
+      <li>Helmet, CORS contrôlé, limite JSON, limitation de débit et gestion centralisée des erreurs complètent les contrôles.</li>
+    </ul>
+    <h3>Remédiation et traçabilité</h3>
+    <p>À la création d’une tâche, l’API attribue `createdBy` à l’utilisateur connecté et produit l’entrée `CREATED`. Le client ne peut pas forger l’historique ni `completedAt`. Les changements sont enregistrés; une transition vers `COMPLETED` fixe la date de fin et une transition hors de cet état la remet à null.</p>
+    <h3>Déploiement et automatisation</h3>
+    <p>Docker Compose décrit MongoDB avec volume persistant, API et interface Nginx. Les variables sensibles sont fournies par l’environnement; aucune donnée n’est seedée par défaut. GitHub Actions installe Node 24, lance tests, lint, build, audits npm et constructions d’images. Aucun déploiement de production n’est configuré.</p>
+    <div class="page-footer"><span>Rapport académique · CyberTrack</span><span>4 / 5</span></div>
+  </section>
+
+  <section class="page">
+    <div class="topline"><span>CyberTrack</span><span>Validation et perspectives</span></div>
+    <h2><span class="section-number">05</span>Tests et résultats</h2>
+    <p>La suite d’intégration démarre Express sur un port éphémère, vérifie la base configurée, puis crée une base de test au nom aléatoire. Elle couvre la santé, l’authentification, les rôles, CRUD, filtres, pagination, relations, agrégations, suppression protégée et historique de remédiation. La base initiale est comparée avant et après.</p>
+    <div class="two-col">
+      <div class="metric"><strong>1 / 1</strong>test d’intégration API réussi</div>
+      <div class="metric"><strong>10 001</strong>documents de vulnérabilité contrôlés</div>
+      <div class="metric"><strong>10 001</strong>documents examinés par le COLLSCAN forcé</div>
+      <div class="metric"><strong>1 073</strong>documents examinés par IXSCAN sur severity_index</div>
+    </div>
+    <p class="small">Sur la dernière exécution de vérification, les temps rapportés étaient de 7 ms pour COLLSCAN et 3 ms pour IXSCAN. Les valeurs dépendent du matériel, du cache et des données et ne sont pas généralisables.</p>
+    <p>Oxlint n’a produit aucun avertissement et le build de production Vite a réussi. Le test vérifie les parcours de l’API; une suite de composants et un test navigateur automatisé ne sont pas encore présents. La construction Docker est déclarée dans la CI, mais elle n’a pas été exécutée dans cet environnement car le moteur Docker Desktop n’était pas démarré.</p>
+    <h2><span class="section-number">06</span>Limites et évolutions</h2>
+    <p>La version actuelle ne dispose pas de synchronisation NVD, de moteur d’analyse réseau, d’export PDF/CSV ni de journal d’audit autonome. Les formulaires de relation demandent encore certains ObjectId au lieu de proposer une sélection assistée; les vues transversales asset–scan–vulnérabilité peuvent être enrichies. Les données simulées ne sont pas des avis officiels.</p>
+    <p>Les évolutions prioritaires sont : ajouter des vues de relations avec des agrégations testées, créer des sélecteurs d’entités paginés, compléter les tests de composants et de navigateur, puis intégrer une source officielle avec provenance, idempotence et gestion des limites de débit. Les index futurs doivent être justifiés par `explain()` sur des requêtes réellement observées.</p>
+    <h2><span class="section-number">07</span>Conclusion</h2>
+    <p>CyberTrack fournit un socle intégré de gestion des vulnérabilités : API sécurisée par rôles, modèle MongoDB conservé, indicateurs serveur et interface de gestion. Les tests d’intégration, la vérification réelle des index et la CI rendent les principaux parcours vérifiables. La distinction explicite entre données simulées et CVE authentiques, ainsi que l’absence assumée de scans réels, définissent clairement le périmètre démontrable.</p>
+    <p class="small">Documentation technique complémentaire : README du projet et `server/docs/API_DOCUMENTATION.md`.</p>
+    <div class="page-footer"><span>Rapport académique · CyberTrack</span><span>5 / 5</span></div>
+  </section>
+</body>
+</html>

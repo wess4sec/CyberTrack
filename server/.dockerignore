@@ -1,0 +1,12 @@
+.env
+.env.*
+.git
+.github
+node_modules
+coverage
+npm-debug.log*
+*.log
+tests
+docs
+database
+seed.js

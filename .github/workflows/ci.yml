@@ -1,0 +1,179 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand(\"ping\").ok'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            server/package-lock.json
+            client/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: server
+        run: npm ci
+
+      - name: Install frontend dependencies
+        working-directory: client
+        run: npm ci
+
+      - name: Prepare isolated API-test baseline
+        working-directory: server
+        env:
+          MONGODB_URI: mongodb://127.0.0.1:27017/cybertrack_db
+        run: |
+          node <<'NODE'
+          const { MongoClient } = require("mongodb");
+          const names = ["assets", "remediation_tasks", "scans", "users", "vulnerabilities"];
+          (async () => {
+            const client = new MongoClient(process.env.MONGODB_URI);
+            await client.connect();
+            const database = client.db("cybertrack_db");
+            for (const name of names) {
+              await database.createCollection(name);
+            }
+            await client.close();
+          })().catch(error => {
+            console.error(error.name);
+            process.exitCode = 1;
+          });
+          NODE
+
+      - name: Run backend integration tests
+        working-directory: server
+        env:
+          MONGODB_URI: mongodb://127.0.0.1:27017/cybertrack_db
+          MONGODB_DATABASE: cybertrack_db
+        run: npm test
+
+      - name: Lint frontend
+        working-directory: client
+        run: npm run lint
+
+      - name: Test frontend
+        working-directory: client
+        run: npm test
+
+      - name: Build frontend
+        working-directory: client
+        run: npm run build
+
+      - name: Audit backend dependencies
+        working-directory: server
+        run: npm audit --audit-level=high
+
+      - name: Audit frontend dependencies
+        working-directory: client
+        run: npm audit --audit-level=high
+
+      - name: Configure isolated Compose smoke environment
+        shell: bash
+        run: |
+          MONGO_INITDB_ROOT_PASSWORD="$(openssl rand -hex 24)"
+          MONGO_APP_PASSWORD="$(openssl rand -hex 24)"
+          JWT_SECRET="$(openssl rand -hex 32)"
+          {
+            printf 'MONGO_INITDB_ROOT_USERNAME=cybertrack_ci_root\n'
+            printf 'MONGO_INITDB_ROOT_PASSWORD=%s\n' "$MONGO_INITDB_ROOT_PASSWORD"
+            printf 'MONGO_APP_USERNAME=cybertrack_ci_app\n'
+            printf 'MONGO_APP_PASSWORD=%s\n' "$MONGO_APP_PASSWORD"
+            printf 'JWT_SECRET=%s\n' "$JWT_SECRET"
+            printf 'CORS_ORIGIN=http://localhost:5173,http://127.0.0.1:5173\n'
+          } > .env
+          cat .env >> "$GITHUB_ENV"
+
+      - name: Validate Docker Compose configuration
+        run: docker compose config --quiet
+
+      - name: Build and start Docker Compose stack
+        run: docker compose up -d --build
+
+      - name: Smoke-test containers, authentication, proxy and persistence
+        shell: bash
+        run: |
+          for attempt in $(seq 1 45); do
+            if curl --fail --silent http://127.0.0.1:5173/api/health > /tmp/cybertrack-health.json; then
+              break
+            fi
+            sleep 2
+          done
+          node -e 'const h=require("/tmp/cybertrack-health.json"); if (!h.success || h.data.database !== "connected") process.exit(1)'
+          curl --fail --silent http://127.0.0.1:5173/ > /tmp/cybertrack-index.html
+          grep -q 'CyberTrack' /tmp/cybertrack-index.html
+
+          BOOTSTRAP_ADMIN_PASSWORD="$(openssl rand -hex 16)"
+          docker compose exec -T \
+            -e BOOTSTRAP_ADMIN_EMAIL=ci-admin@example.test \
+            -e BOOTSTRAP_ADMIN_PASSWORD="$BOOTSTRAP_ADMIN_PASSWORD" \
+            -e 'BOOTSTRAP_ADMIN_NAME=CI Administrator' \
+            backend npm run auth:bootstrap
+          curl --fail --silent \
+            --cookie-jar /tmp/cybertrack-cookies.txt \
+            -H 'Content-Type: application/json' \
+            --data "{\"email\":\"ci-admin@example.test\",\"password\":\"$BOOTSTRAP_ADMIN_PASSWORD\"}" \
+            http://127.0.0.1:5173/api/auth/login \
+            --output /tmp/cybertrack-login.json
+          grep -q 'cybertrack_token' /tmp/cybertrack-cookies.txt
+          node -e 'const r=require("/tmp/cybertrack-login.json"); if (!r.success || r.data.user.role !== "ADMIN") process.exit(1)'
+
+          curl --fail --silent \
+            --dump-header /tmp/cybertrack-secure-headers.txt \
+            -H 'Content-Type: application/json' \
+            -H 'X-Forwarded-Proto: https' \
+            --data "{\"email\":\"ci-admin@example.test\",\"password\":\"$BOOTSTRAP_ADMIN_PASSWORD\"}" \
+            http://127.0.0.1:5173/api/auth/login \
+            --output /tmp/cybertrack-secure-login.json
+          grep -Eiq '^set-cookie: cybertrack_token=.*;.*secure' /tmp/cybertrack-secure-headers.txt
+
+          curl --fail --silent \
+            --cookie /tmp/cybertrack-cookies.txt \
+            http://127.0.0.1:5173/api/users?limit=1 \
+            --output /tmp/cybertrack-users.json
+          node -e 'const r=require("/tmp/cybertrack-users.json"); if (!r.success || !r.data.length) process.exit(1)'
+
+          docker compose exec -T mongodb sh -ec 'mongosh --quiet --username "$MONGO_INITDB_ROOT_USERNAME" --password "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin cybertrack_db --eval "db.container_smoke.replaceOne({_id: \"volume-check\"}, {_id: \"volume-check\", marker: \"present\"}, {upsert: true})"'
+          docker compose restart mongodb
+          for attempt in $(seq 1 45); do
+            status="$(docker inspect --format='{{.State.Health.Status}}' "$(docker compose ps -q mongodb)" 2>/dev/null || true)"
+            if [ "$status" = healthy ]; then
+              break
+            fi
+            sleep 2
+          done
+          [ "$status" = healthy ]
+          docker compose exec -T mongodb sh -ec 'mongosh --quiet --username "$MONGO_INITDB_ROOT_USERNAME" --password "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin cybertrack_db --eval "if (db.container_smoke.findOne({_id: \"volume-check\"}) === null) quit(1)"'
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:5173/api/health > /tmp/cybertrack-health.json; then
+              break
+            fi
+            sleep 2
+          done
+          node -e 'const h=require("/tmp/cybertrack-health.json"); if (!h.success || h.data.database !== "connected") process.exit(1)'
+
+      - name: Stop Docker Compose stack
+        if: always()
+        run: docker compose down --remove-orphans
